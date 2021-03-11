@@ -17,6 +17,9 @@ on:
 env:
   # TODO: Change variable to your image's name.
   IMAGE_NAME: python-test
+  # Registry. Use docker.io for DockerHub
+  DOCKER_REGISTRY: docker.pkg.github.com
+  CONTAINER_REGISTRY: ghcr.io
 
 jobs:
   # Run tests.
@@ -48,15 +51,18 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
-      - name: Build image
-        run: docker build . --file Dockerfile --tag $IMAGE_NAME
+      # https://github.com/docker/login-action
+      - name: Login to ${{ env.DOCKER_REGISTRY }}
+        uses: docker/login-action@v1 
+        with:
+          registry: ${{ env.DOCKER_REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Log into registry
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login docker.pkg.github.com -u ${{ github.actor }} --password-stdin
-
-      - name: Push image
+      - name: Generate image version
+        id: version
         run: |
-          IMAGE_ID=docker.pkg.github.com/${{ github.repository }}/$IMAGE_NAME
+          IMAGE_ID=$DOCKER_REGISTRY/${{ github.repository }}/$IMAGE_NAME
 
           # Change all uppercase to lowercase
           IMAGE_ID=$(echo $IMAGE_ID | tr '[A-Z]' '[a-z]')
@@ -73,8 +79,15 @@ jobs:
           echo IMAGE_ID=$IMAGE_ID
           echo VERSION=$VERSION
 
-          docker tag $IMAGE_NAME $IMAGE_ID:$VERSION
-          docker push $IMAGE_ID:$VERSION
+          echo "::set-output name=image::$IMAGE_ID"
+          echo "::set-output name=tag::$VERSION"
+
+      # https://github.com/docker/build-push-action
+      - name: Build and push
+        uses: docker/build-push-action@v2
+        with:
+          push: true
+          tags: ${{ steps.version.outputs.image }}:${{ steps.version.outputs.tag }}
           
   push-to-containers-v2:
   # Ensure test job passes before pushing image.
@@ -86,15 +99,18 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
-      - name: Build image
-        run: docker build . --file Dockerfile --tag $IMAGE_NAME
+      # https://github.com/docker/login-action
+      - name: Login to ${{ env.CONTAINER_REGISTRY }}
+        uses: docker/login-action@v1 
+        with:
+          registry: ${{ env.CONTAINER_REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Log into registry
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-
-      - name: Push image
+      - name: Generate image version
+        id: version
         run: |
-          IMAGE_ID=ghcr.io/${{ github.repository_owner }}/$IMAGE_NAME
+          IMAGE_ID=$CONTAINER_REGISTRY/${{ github.repository_owner }}/$IMAGE_NAME
 
           # Change all uppercase to lowercase
           IMAGE_ID=$(echo $IMAGE_ID | tr '[A-Z]' '[a-z]')
@@ -111,5 +127,12 @@ jobs:
           echo IMAGE_ID=$IMAGE_ID
           echo VERSION=$VERSION
 
-          docker tag $IMAGE_NAME $IMAGE_ID:$VERSION
-          docker push $IMAGE_ID:$VERSION
+          echo "::set-output name=image::$IMAGE_ID"
+          echo "::set-output name=tag::$VERSION"
+
+      # https://github.com/docker/build-push-action
+      - name: Build and push
+        uses: docker/build-push-action@v2
+        with:
+          push: true
+          tags: ${{ steps.version.outputs.image }}:${{ steps.version.outputs.tag }}
